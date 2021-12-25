@@ -16,12 +16,6 @@ server.on('request', (req, res) => {
   switch (req.method) {
     case 'POST':
 
-      if (fs.existsSync(filepath)) {
-        res.statusCode = 409;
-        res.end('Conflict');
-        break;
-      }
-
       if (pathname.includes('/')) {
         res.statusCode = 400;
         res.end('Bad Request');
@@ -29,7 +23,7 @@ server.on('request', (req, res) => {
       }
 
       const limitSizeStream = new LimitSizeStream({limit: 1024 * 1014});
-      const writeStream = fs.createWriteStream(filepath);
+      const writeStream = fs.createWriteStream(filepath, {flags: 'wx'});
 
       req
           .on('aborted', () => {
@@ -41,10 +35,16 @@ server.on('request', (req, res) => {
             if (error.code === 'LIMIT_EXCEEDED') {
               res.statusCode = 413;
               res.end('Payload too large');
-              req.destroy();
+              fs.unlinkSync(filepath);
             }
           })
           .pipe(writeStream)
+          .on('error', (error) => {
+            if (error.code === 'EEXIST') {
+              res.statusCode = 409;
+              res.end('Conflict');
+            }
+          })
           .on('finish', () => {
             res.statusCode = 201;
             res.end('Created');
