@@ -1,6 +1,9 @@
 const url = require('url');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
+
+const LimitSizeStream = require('./LimitSizeStream');
 
 const server = new http.Server();
 
@@ -12,6 +15,40 @@ server.on('request', (req, res) => {
 
   switch (req.method) {
     case 'POST':
+
+      if (pathname.includes('/')) {
+        res.statusCode = 400;
+        res.end('Bad Request');
+        break;
+      }
+
+      const limitSizeStream = new LimitSizeStream({limit: 1024 * 1014});
+      const writeStream = fs.createWriteStream(filepath, {flags: 'wx'});
+
+      req
+          .on('aborted', () => {
+            if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+            req.destroy();
+          })
+          .pipe(limitSizeStream)
+          .on('error', (error) => {
+            if (error.code === 'LIMIT_EXCEEDED') {
+              res.statusCode = 413;
+              res.end('Payload too large');
+              fs.unlinkSync(filepath);
+            }
+          })
+          .pipe(writeStream)
+          .on('error', (error) => {
+            if (error.code === 'EEXIST') {
+              res.statusCode = 409;
+              res.end('Conflict');
+            }
+          })
+          .on('finish', () => {
+            res.statusCode = 201;
+            res.end('Created');
+          });
 
       break;
 
